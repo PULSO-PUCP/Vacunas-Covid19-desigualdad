@@ -1,0 +1,364 @@
+
+### Carga de bases:
+
+#### 1. Personas vacunadas
+```{r warning=FALSE}
+library(readr)
+
+temp <- tempfile()
+download.file("https://cloud.minsa.gob.pe/s/oHF5JSLEk8KzpPW/download",temp)
+unz(temp, "TB_VACUNACION_COVID19.csv")
+vacunas_covid <-read_csv("TB_VACUNACION_COVID19.csv")
+unlink(temp)
+
+head(vacunas_covid)
+#download.file("https://cloud.minsa.gob.pe/s/To2QtqoNjKqobfw/download",temp) #incompleta
+#unz(temp, "vacunas_covid.csv")
+#vacunas_covid <-read_csv("vacunas_covid.csv")
+```
+
+#### 2. Padrón de población
+```{r warning=FALSE}
+temp2 <- tempfile()
+download.file("https://cloud.minsa.gob.pe/s/6J5obcebX6c8rQ8/download",temp2)
+unz(temp2, "TB_PERSONA.csv")
+TB_PERSONA <-read_csv("TB_PERSONA.csv")
+unlink(temp2)
+```
+
+#### 3. Ubigeos 
+```{r warning=FALSE}
+ubigeos <- read_csv("https://cloud.minsa.gob.pe/s/GkfcJD8xKHJeCqn/download")
+```
+
+#### 4. Indicadores de Desarrollo 
+```{r warning=FALSE}
+library(readxl)
+temp3 <- tempfile()
+download.file("https://www.ceplan.gob.pe/download/221103/",temp3)
+indicadores <-read_excel("0.Nacional_Datos-para-el-planeamiento-estrategico_29072021.xlsx",
+                         sheet=4, skip = 8)
+unlink(temp3)
+
+url <- "https://www.pe.undp.org/content/dam/peru/docs/Publicaciones%20pobreza/idh2019/IDH%202019.xlsx"
+destfile <- "IDH_202019.xlsx"
+curl::curl_download(url, destfile)
+IDH_2019 <- read_excel(destfile, skip = 3)
+```
+
+Referencias: 
+* https://www.ceplan.gob.pe/informacion-sobre-zonas-y-departamentos-del-peru/
+* https://www.pe.undp.org/content/peru/es/home/library/poverty/el-reto-de-la-igualdad.html
+
+### Limpieza de bases
+
+#### 1. Padrón de población
+a. Consignar año de nacimiento como número
+b. Filtrar a los nacidos antes de 2004 (18 años a más)
+c. Mantener a los no fallecidos
+d. Agregar los datos por ubigeo de domicilio
+```{r warning=FALSE}
+TB_PERSONA$anho_nac=as.numeric(TB_PERSONA$anho_nac)
+
+Poblacion=subset(TB_PERSONA,anho_nac<2004)
+
+Poblacion[Poblacion=='NA'] <- NA
+
+PoblacionCopia <- Poblacion[is.na(Poblacion$fecha_fallecido),]
+
+library(dplyr)
+
+PoblacionD18=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionCopia,FUN=length)
+```
+
+#### 2. Personas vacunadas
+a. Mantener solo segundas dosis (pauta completa)
+b. Cambiar formato de fecha a fecha de vacunación
+c. Filtrar a los compeltamente vacunados antes del 06 de junio. Combinar con población de 18 años a más. Agregar por ubigeo de domicilio.
+d. Filtrar a los compeltamente vacunados antes del 28 de julio. Combinar con población de 18 años a más. Agregar por ubigeo de domicilio.
+e. Filtrar a los compeltamente vacunados antes del 25 setiembre. Combinar con población de 18 años a más. Agregar por ubigeo de domicilio.
+f. Combinar las tres bases de las tres fechas con la base de población de 18 años a más.
+```{r warning=FALSE}
+str(vacunas_covid)
+
+Vacuna=subset(vacunas_covid,dosis==2)
+
+Vacuna$fecha_vacunacion1 <- as.Date(Vacuna$fecha_vacunacion,format= "%d/%m/%Y")
+
+summary(Vacuna$fecha_vacunacion1)
+
+Vacuna6Jun=Vacuna[Vacuna$fecha_vacunacion1<"2021-06-06",]
+
+PoblacionVacunada6Jun=merge(Vacuna6Jun,PoblacionCopia,by="id_persona")
+ 
+PoblacionVac6Jun=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada6Jun,FUN=length)
+
+Vacuna28Jul=subset(Vacuna, fecha_vacunacion1< "2021-07-28")
+
+PoblacionVacunada28Jul=merge(Vacuna28Jul,PoblacionCopia,by="id_persona")
+
+PoblacionVac28Jul=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada28Jul,FUN=length)
+
+Vacuna14Oct=Vacuna
+
+PoblacionVacunada14Oct=merge(Vacuna14Oct,PoblacionCopia,by="id_persona")
+
+PoblacionVac14Oct=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada14Oct,FUN=length)
+```
+
+```{r warning=FALSE}
+names(PoblacionVac6Jun)[names(PoblacionVac6Jun) == 'id_persona'] <- 'Vac6Jun'
+
+names(PoblacionVac28Jul)[names(PoblacionVac28Jul) == 'id_persona'] <- 'Vac28Jul'
+
+names(PoblacionVac14Oct)[names(PoblacionVac14Oct) == 'id_persona'] <- 'Vac14Oct'
+
+
+PoblacionD18=Reduce(function(...) merge(..., all=TRUE), list(PoblacionVac6Jun, PoblacionVac28Jul, PoblacionVac14Oct, PoblacionD18))
+```
+
+#### 3. IDH
+```{r warning=FALSE}
+IDH<- IDH_2019[!is.na(IDH_2019$DEPARTAMENTO),]
+
+BaseDistrital=merge(PoblacionD18,ubigeos,by.x="id_ubigeo_domicilio",by.y="id_ubigeo")
+
+BaseDistrital2=merge(BaseDistrital,IDH,by.x="ubigeo_inei",by.y="UBIGEO")
+```
+
+#### 4. Indicadores de Desarrollo
+```{r warning=FALSE}
+BaseDistrital3=merge(BaseDistrital2,indicadores,
+                     by.x="ubigeo_inei",by.y="Ubigeo")
+BaseDistrital3=BaseDistrital3[!is.na(BaseDistrital3$ubigeo_inei),]
+            
+```
+
+```{r warning=FALSE}
+#ubigeo_inei
+names(BaseDistrital3)[names(BaseDistrital3) == 'id_ubigeo_domicilio'] <- 'UbigeoMINSA'
+names(BaseDistrital3)[names(BaseDistrital3) == 'id_persona'] <- 'Poblacion18'
+names(BaseDistrital3)[names(BaseDistrital3) == 'id_centro_vacunacion'] <- 'EEVacunacion'
+names(BaseDistrital3)[names(BaseDistrital3) == '...17'] <- 'IDH2019'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Esperanza de vida al nacer...7'] <- 'SaludIDH'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Población (18 años) con Educ. secundaria completa...8'] <- 'EducacionSIDHE'
+names(BaseDistrital3)[names(BaseDistrital3) == '.Años de educación (Poblac. 25 y más)...14'] <- 'EducacionAIDHE'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Ingreso familiar per cápita...16'] <- 'IngresoIDHE'
+names(BaseDistrital3)[names(BaseDistrital3) == 'VOTOS_P1'] <- 'PeruLibre'
+names(BaseDistrital3)[names(BaseDistrital3) == 'VOTOS_P2'] <- 'FuerzaPopular'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Porcentaje de la población en pobreza total\r\n16a/'] <- 'Pobreza'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Porcentaje de la población en pobreza extrema \r\n17a/'] <- 'PobrezaExtrema'
+names(BaseDistrital3)[names(BaseDistrital3) == 'Índice de Vulnerabilidad a la Inseguridad Alimentaria (IVIA) \r\n(2018)\r\n8/'] <- 'IVIA'
+
+
+Distritos=BaseDistrital3[, (names(BaseDistrital3) %in% c("ubigeo_inei","UbigeoMINSA","departamento","provincia","distrito",
+                                "Poblacion18","Vac6Jun","Vac28Jul",
+                                "Vac14Oct","IDH2019","SaludIDH",
+                                "EducacionSIDHE","EducacionAIDHE","IngresoIDHE",
+                                "Pobreza","PobrezaExtrema","IVIA"))]
+
+names(Distritos)
+```
+
+### Procesamiento 
+
+```{r warning=FALSE}
+Distritos$Avance1=Distritos$Vac6Jun/Distritos$Poblacion18*100
+
+Distritos$Avance2=Distritos$Vac28Jul/Distritos$Poblacion18*100
+
+Distritos$Avance3=Distritos$Vac14Oct/Distritos$Poblacion18*100
+```
+
+#### Índice de Desarrollo Humano 
+
+```{r warning=FALSE}
+summary(Distritos$IDH2019)
+```
+
+```{r warning=FALSE}
+Distritos$IDHCategorias<-ifelse(Distritos$IDH2019>0.507,"Q4",
+                              ifelse(Distritos$IDH2019>0.386,"Q3",
+                              ifelse(Distritos$IDH2019>0.305,"Q2",
+                                     "Q1")))
+table(Distritos$IDHCategorias)
+```
+
+#### Pobreza monetaria
+
+```{r warning=FALSE}
+quantile(Distritos$Pobreza,c(0.20,0.40,0.60,0.80))
+```
+
+```{r warning=FALSE}
+Distritos$PobrezaCategorias<-ifelse(Distritos$Pobreza>49.5,"Q1",
+                                     ifelse(Distritos$Pobreza>39.2,"Q2",
+                                     ifelse(Distritos$Pobreza>29.1,"Q3",
+                                     ifelse(Distritos$Pobreza>18.3,"Q4",
+                                     "Q5"))))
+table(Distritos$PobrezaCategorias)
+```
+
+#### Índice de Vulnerabilidad Alimentaria
+
+```{r warning=FALSE}
+Distritos$IVIAnum=as.numeric(Distritos$IVIA)
+summary(Distritos$IVIAnum)
+```
+
+```{r warning=FALSE}
+quantile(Distritos$IVIAnum,c(0.20,0.40,0.60,0.80))
+```
+
+```{r warning=FALSE}
+Distritos$IVIACategorias<-ifelse(Distritos$IVIAnum>0.68,"Q1",
+                                  ifelse(Distritos$IVIAnum>0.60,"Q2",
+                                     ifelse(Distritos$IVIAnum>0.49,"Q3",
+                                    ifelse(Distritos$IVIAnum>0.31,"Q4",
+                                     "Q5"))))
+table(Distritos$IVIACategorias)
+```
+
+### Gráficos
+
+```{r warning=FALSE}
+IDH1= Distritos %>%
+  group_by(IDHCategorias) %>% 
+   summarise(mean =  mean(Avance1), 
+             wm = sum(Poblacion18*Avance1)/sum(Poblacion18)) 
+IDH1$Mes="06 de junio"
+```
+
+```{r warning=FALSE}
+IDH2= Distritos %>%
+  group_by(IDHCategorias) %>% 
+   summarise(mean =  mean(Avance2), 
+             wm = sum(Poblacion18*Avance2)/sum(Poblacion18)) 
+IDH2$Mes="28 de julio"
+```
+
+```{r warning=FALSE}
+IDH3= Distritos %>%
+  group_by(IDHCategorias) %>% 
+   summarise(mean =  mean(Avance3), 
+             wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
+IDH3$Mes="14 de octubre"
+```
+
+```{r warning=FALSE}
+IDHVacuna=Reduce(function(...) merge(..., all=TRUE), list(IDH1,IDH2, IDH3))
+
+IDHVacuna$Mes=ordered(IDHVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+```
+
+```{r warning=FALSE}
+library(ggplot2)
+library(stringr)
+library(plotly)
+
+ggplot(IDHVacuna) +
+    geom_bar(aes(x=reorder(IDHCategorias,-wm),y=wm), stat="identity", fill="skyblue", alpha=0.75) +
+     theme_light() +
+  geom_text(aes(x=IDHCategorias, y=wm,label= round(wm,1)),hjust=0.5, vjust=1.5) +
+  labs(x="Cuartil",y="Porcentaje", title="Porcentaje de ciudadanos de 18 a más años completamente vacunados",subtitle = "Según puntaje del Índice de Desarrollo Humano del distrito de domicilio") +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20))+
+  facet_wrap(~IDHVacuna$Mes, scales = "free_x")
+ 
+```
+
+```{r warning=FALSE}
+Pobreza1=Distritos %>%
+  group_by(PobrezaCategorias) %>% 
+   summarise(mean =  mean(Avance1), 
+             wm = sum(Poblacion18*Avance1)/sum(Poblacion18)) 
+Pobreza1$Mes="06 de junio"
+```
+
+```{r warning=FALSE}
+Pobreza2=Distritos %>%
+  group_by(PobrezaCategorias) %>% 
+   summarise(mean =  mean(Avance2), 
+             wm = sum(Poblacion18*Avance2)/sum(Poblacion18)) 
+Pobreza2$Mes="28 de julio"
+```
+
+```{r warning=FALSE}
+Pobreza3=Distritos %>%
+  group_by(PobrezaCategorias) %>% 
+   summarise(mean =  mean(Avance3), 
+             wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
+Pobreza3$Mes="14 de octubre"
+```
+
+```{r warning=FALSE}
+PobrezaVacuna=Reduce(function(...) merge(..., all=TRUE), list(Pobreza1,Pobreza2,Pobreza3))
+
+PobrezaVacuna$Mes=ordered(PobrezaVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+```
+
+```{r warning=FALSE}
+ggplot(PobrezaVacuna) +
+    geom_bar(aes(x=reorder(PobrezaCategorias,-wm),y=wm), stat="identity",
+             fill="skyblue", alpha=0.75) +
+     theme_light() +
+  geom_text(aes(x=PobrezaCategorias, y=wm,label= round(wm,1)),hjust=0.5, vjust=1.5) +
+  labs(x="Quintil",y="Porcentaje", title="Porcentaje de ciudadanos de 18 a más años completamente vacunados",subtitle = "Según población en pobreza monetaria del distrito de domicilio") +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20))+
+  facet_wrap(~PobrezaVacuna$Mes, scales = "free_x")
+```
+```{r warning=FALSE}
+ggsave("PobrezaVacuna.png",width = 10, height = 5 )
+```
+
+```{r warning=FALSE}
+IVIA1= Distritos %>%
+  group_by(IVIACategorias) %>% 
+   summarise(mean =  mean(Avance1), 
+             wm = sum(Poblacion18*Avance1)/sum(Poblacion18)) 
+IVIA1$Mes="06 de junio"
+```
+
+```{r warning=FALSE}
+IVIA2= Distritos %>%
+  group_by(IVIACategorias) %>% 
+   summarise(mean =  mean(Avance2), 
+             wm = sum(Poblacion18*Avance2)/sum(Poblacion18)) 
+IVIA2$Mes="28 de julio"
+```
+
+```{r warning=FALSE}
+IVIA3= Distritos %>%
+  group_by(IVIACategorias) %>% 
+   summarise(mean =  mean(Avance3), 
+             wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
+IVIA3$Mes="14 de octubre"
+```
+
+```{r warning=FALSE}
+IVIAVacuna=Reduce(function(...) merge(..., all=TRUE), list(IVIA1,IVIA2, IVIA3))
+
+IVIAVacuna$Mes=ordered(IVIAVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+```
+
+```{r warning=FALSE}
+library(ggplot2)
+library(stringr)
+library(plotly)
+
+ggplot(IVIAVacuna) +
+    geom_bar(aes(x=reorder(IVIACategorias,-wm),y=wm), stat="identity", fill="skyblue", alpha=0.75) +
+     theme_light() +
+  geom_text(aes(x=IVIACategorias, y=wm,label= round(wm,1)),hjust=0.5, vjust=1.5) +
+  labs(x="Quintil",y="Porcentaje", title="Porcentaje de ciudadanos de 18 a más años completamente vacunados",subtitle = "Según puntaje del Índice de vulnerabilidad a la inseguridad alimentaria del distrito de domicilio") +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20))+
+  facet_wrap(~IVIAVacuna$Mes, scales = "free_x")
+ 
+```
+
+```{r warning=FALSE}
+ggsave("IVIAVac.png",width = 10, height = 5 )
+```
+
+```{r warning=FALSE}
+write.csv(Distritos,"BaseDistrital.csv")
+```
