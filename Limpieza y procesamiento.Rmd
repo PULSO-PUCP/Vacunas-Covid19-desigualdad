@@ -4,14 +4,20 @@
 #### 1. Personas vacunadas
 ```{r warning=FALSE}
 library(readr)
+library(archive)
+tf <- tempfile() ; td <- tempdir()
+file.path <- "https://cloud.minsa.gob.pe/s/oHF5JSLEk8KzpPW/download"
+download.file( file.path , tf , mode = "wb" )
+vacunas_covid <- read.csv(archive_read(tf, "TB_VACUNACION_COVID19.csv"))
 
-temp <- tempfile()
-download.file("https://cloud.minsa.gob.pe/s/oHF5JSLEk8KzpPW/download",temp)
-unz(temp, "TB_VACUNACION_COVID19.csv")
-vacunas_covid <-read_csv("TB_VACUNACION_COVID19.csv")
-unlink(temp)
+#temp <- tempfile() 
+#download.file("https://cloud.minsa.gob.pe/s/oHF5JSLEk8KzpPW/download",temp)
+#unz(temp, "TB_VACUNACION_COVID19.csv")
+#vacunas_covid <-read_csv("TB_VACUNACION_COVID19.csv")
+#unlink(temp)
 
 head(vacunas_covid)
+
 #download.file("https://cloud.minsa.gob.pe/s/To2QtqoNjKqobfw/download",temp) #incompleta
 #unz(temp, "vacunas_covid.csv")
 #vacunas_covid <-read_csv("vacunas_covid.csv")
@@ -19,11 +25,16 @@ head(vacunas_covid)
 
 #### 2. Padrón de población
 ```{r warning=FALSE}
-temp2 <- tempfile()
-download.file("https://cloud.minsa.gob.pe/s/6J5obcebX6c8rQ8/download",temp2)
-unz(temp2, "TB_PERSONA.csv")
-TB_PERSONA <-read_csv("TB_PERSONA.csv")
-unlink(temp2)
+tf2 <- tempfile() ; td <- tempdir()
+file.path2 <- "https://cloud.minsa.gob.pe/s/6J5obcebX6c8rQ8/download"
+download.file( file.path2 , tf2 , mode = "wb" )
+TB_PERSONA <- read.csv(archive_read(tf2, "TB_PERSONA.csv"))
+
+#temp2 <- tempfile(); td <- tempdir()
+#download.file("https://cloud.minsa.gob.pe/s/6J5obcebX6c8rQ8/download",temp2)
+#unz(temp2, "TB_PERSONA.csv")
+#TB_PERSONA <-read_csv("TB_PERSONA.csv")
+#unlink(temp2)
 ```
 
 #### 3. Ubigeos 
@@ -57,12 +68,21 @@ a. Consignar año de nacimiento como número
 b. Filtrar a los nacidos antes de 2004 (18 años a más)
 c. Mantener a los no fallecidos
 d. Agregar los datos por ubigeo de domicilio
+```{r}
+names(TB_PERSONA)[names(TB_PERSONA) == 'ï..id_persona'] <- 'id_persona'
+```
+```{r}
+names(vacunas_covid)[names(vacunas_covid) == 'ï..id_persona'] <- 'id_persona'
+```
+
 ```{r warning=FALSE}
 TB_PERSONA$anho_nac=as.numeric(TB_PERSONA$anho_nac)
 
 Poblacion=subset(TB_PERSONA,anho_nac<2004)
 
 Poblacion[Poblacion=='NA'] <- NA
+
+Poblacion$fecha_fallecido <- as.Date(Poblacion$fecha_fallecido,format= "%d/%m/%Y")
 
 PoblacionCopia <- Poblacion[is.na(Poblacion$fecha_fallecido),]
 
@@ -99,11 +119,11 @@ PoblacionVacunada28Jul=merge(Vacuna28Jul,PoblacionCopia,by="id_persona")
 
 PoblacionVac28Jul=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada28Jul,FUN=length)
 
-Vacuna14Oct=Vacuna
+Vacuna18Oct=Vacuna
 
-PoblacionVacunada14Oct=merge(Vacuna14Oct,PoblacionCopia,by="id_persona")
+PoblacionVacunada18Oct=merge(Vacuna18Oct,PoblacionCopia,by="id_persona")
 
-PoblacionVac14Oct=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada14Oct,FUN=length)
+PoblacionVac18Oct=aggregate(id_persona~id_ubigeo_domicilio,data=PoblacionVacunada18Oct,FUN=length)
 ```
 
 ```{r warning=FALSE}
@@ -111,10 +131,10 @@ names(PoblacionVac6Jun)[names(PoblacionVac6Jun) == 'id_persona'] <- 'Vac6Jun'
 
 names(PoblacionVac28Jul)[names(PoblacionVac28Jul) == 'id_persona'] <- 'Vac28Jul'
 
-names(PoblacionVac14Oct)[names(PoblacionVac14Oct) == 'id_persona'] <- 'Vac14Oct'
+names(PoblacionVac18Oct)[names(PoblacionVac18Oct) == 'id_persona'] <- 'Vac18Oct'
 
 
-PoblacionD18=Reduce(function(...) merge(..., all=TRUE), list(PoblacionVac6Jun, PoblacionVac28Jul, PoblacionVac14Oct, PoblacionD18))
+PoblacionD18=Reduce(function(...) merge(..., all=TRUE), list(PoblacionVac6Jun, PoblacionVac28Jul, PoblacionVac18Oct, PoblacionD18))
 ```
 
 #### 3. IDH
@@ -153,7 +173,7 @@ names(BaseDistrital3)[names(BaseDistrital3) == 'Índice de Vulnerabilidad a la I
 
 Distritos=BaseDistrital3[, (names(BaseDistrital3) %in% c("ubigeo_inei","UbigeoMINSA","departamento","provincia","distrito",
                                 "Poblacion18","Vac6Jun","Vac28Jul",
-                                "Vac14Oct","IDH2019","SaludIDH",
+                                "Vac18Oct","IDH2019","SaludIDH",
                                 "EducacionSIDHE","EducacionAIDHE","IngresoIDHE",
                                 "Pobreza","PobrezaExtrema","IVIA"))]
 
@@ -167,7 +187,7 @@ Distritos$Avance1=Distritos$Vac6Jun/Distritos$Poblacion18*100
 
 Distritos$Avance2=Distritos$Vac28Jul/Distritos$Poblacion18*100
 
-Distritos$Avance3=Distritos$Vac14Oct/Distritos$Poblacion18*100
+Distritos$Avance3=Distritos$Vac18Oct/Distritos$Poblacion18*100
 ```
 
 #### Índice de Desarrollo Humano 
@@ -242,13 +262,13 @@ IDH3= Distritos %>%
   group_by(IDHCategorias) %>% 
    summarise(mean =  mean(Avance3), 
              wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
-IDH3$Mes="14 de octubre"
+IDH3$Mes="18 de octubre"
 ```
 
 ```{r warning=FALSE}
 IDHVacuna=Reduce(function(...) merge(..., all=TRUE), list(IDH1,IDH2, IDH3))
 
-IDHVacuna$Mes=ordered(IDHVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+IDHVacuna$Mes=ordered(IDHVacuna$Mes,levels=c("06 de junio","28 de julio","18 de octubre"))
 ```
 
 ```{r warning=FALSE}
@@ -264,6 +284,9 @@ ggplot(IDHVacuna) +
   scale_x_discrete(labels = function(x) str_wrap(x, width = 20))+
   facet_wrap(~IDHVacuna$Mes, scales = "free_x")
  
+```
+```{r warning=FALSE}
+ggsave("IDHVacuna.png",width = 10, height = 5 )
 ```
 
 ```{r warning=FALSE}
@@ -287,13 +310,13 @@ Pobreza3=Distritos %>%
   group_by(PobrezaCategorias) %>% 
    summarise(mean =  mean(Avance3), 
              wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
-Pobreza3$Mes="14 de octubre"
+Pobreza3$Mes="18 de octubre"
 ```
 
 ```{r warning=FALSE}
 PobrezaVacuna=Reduce(function(...) merge(..., all=TRUE), list(Pobreza1,Pobreza2,Pobreza3))
 
-PobrezaVacuna$Mes=ordered(PobrezaVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+PobrezaVacuna$Mes=ordered(PobrezaVacuna$Mes,levels=c("06 de junio","28 de julio","18 de octubre"))
 ```
 
 ```{r warning=FALSE}
@@ -331,13 +354,13 @@ IVIA3= Distritos %>%
   group_by(IVIACategorias) %>% 
    summarise(mean =  mean(Avance3), 
              wm = sum(Poblacion18*Avance3)/sum(Poblacion18)) 
-IVIA3$Mes="14 de octubre"
+IVIA3$Mes="18 de octubre"
 ```
 
 ```{r warning=FALSE}
 IVIAVacuna=Reduce(function(...) merge(..., all=TRUE), list(IVIA1,IVIA2, IVIA3))
 
-IVIAVacuna$Mes=ordered(IVIAVacuna$Mes,levels=c("06 de junio","28 de julio","14 de octubre"))
+IVIAVacuna$Mes=ordered(IVIAVacuna$Mes,levels=c("06 de junio","28 de julio","18 de octubre"))
 ```
 
 ```{r warning=FALSE}
